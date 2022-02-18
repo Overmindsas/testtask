@@ -16,21 +16,21 @@ type ProxySettings struct {
 	Port   string `json:"port"`
 }
 
-func Proxy(addres string) (*httputil.ReverseProxy, error) {
+func Proxy(addres string) *url.URL {
 
 	url, err := url.Parse(addres)
 	if err != nil {
 		fmt.Println(err)
 	}
-	return httputil.NewSingleHostReverseProxy(url), nil
-}
-
-func Cache() {
-
+	return url
 }
 
 func main() {
-	var p ProxySettings
+
+	var pr ProxySettings
+
+	cache := make(map[string]string)
+
 	dir, err := filepath.Abs("conf.json")
 	if err != nil {
 		fmt.Println(err)
@@ -38,24 +38,35 @@ func main() {
 
 	file, _ := ioutil.ReadFile(dir)
 
-	err = json.Unmarshal([]byte(file), &p)
+	err = json.Unmarshal([]byte(file), &pr)
 	if err != nil {
 		fmt.Println(err)
 	}
 
 	data := ProxySettings{
-		Addres: p.Addres,
-		Port:   p.Port,
+		Addres: pr.Addres,
+		Port:   pr.Port,
 	}
-	newproxy, err := Proxy(data.Addres)
+
+	url := Proxy(data.Addres)
+	handler := func(p *httputil.ReverseProxy) func(http.ResponseWriter, *http.Request) {
+		return func(w http.ResponseWriter, r *http.Request) {
+			cache[""] = data.Addres
+			log.Println(r.URL)
+			r.Host = url.Host
+			w.Header().Set("X-Ben", "Rad")
+			p.ServeHTTP(w, r)
+		}
+	}
 
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		newproxy.ServeHTTP(w, r)
-	})
-
-	log.Fatal(http.ListenAndServe(":"+data.Port, nil))
+	proxy := httputil.NewSingleHostReverseProxy(url)
+	http.HandleFunc("/", handler(proxy))
+	err = http.ListenAndServe(":"+data.Port, nil)
+	if err != nil {
+		panic(err)
+	}
 }
